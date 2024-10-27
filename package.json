@@ -19,14 +19,14 @@
     "@react-native-picker/picker": "2.7.5",
     "@tanstack/react-query": "latest",
     "axios": "^1.7.7",
-    "expo": "~51.0.38",
+    "expo": "latest",
     "expo-constants": "^16.0.2",
     "expo-font": "^12.0.10",
     "expo-linking": "^6.3.1",
     "expo-router": "^3.5.23",
-    "expo-splash-screen": "^0.27.6",
+    "expo-splash-screen": "latest",
     "expo-status-bar": "^1.12.1",
-    "expo-updates": "~0.25.27",
+    "expo-updates": "latest",
     "lottie-react-native": "6.7.0",
     "patch-package": "^8.0.0",
     "postinstall-postinstall": "^2.1.0",
@@ -51,5 +51,9 @@
   "overrides": {
     "metro": "0.76.0",
     "metro-resolver": "0.76.0"
+  },
+  "resolutions": {
+    "@expo/config-plugins": "~8.0.0",
+    "@expo/prebuild-config": "~7.0.0"
   }
 }
