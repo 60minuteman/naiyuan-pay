@@ -1,37 +1,67 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
-import { useFonts } from 'expo-font';
+import React from 'react';
+import { Platform, useColorScheme } from 'react-native';
 import { Stack } from 'expo-router';
-import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
-import 'react-native-reanimated';
+import * as SplashScreen from 'expo-splash-screen';
+import { useFonts } from 'expo-font';
+import { AuthProvider } from '../context/AuthContext';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { useState } from 'react';
 
-import { useColorScheme } from '@/hooks/useColorScheme';
-
-// Prevent the splash screen from auto-hiding before asset loading is complete.
-SplashScreen.preventAutoHideAsync();
+const [queryClient] = useState(() => new QueryClient());
 
 export default function RootLayout() {
-  const colorScheme = useColorScheme();
-  const [loaded] = useFonts({
-    SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
+  const [fontsLoaded] = useFonts({
+    'RedHatDisplay-Regular': require('../assets/fonts/RedHatDisplay-Regular.ttf'),
+    'RedHatDisplay-Medium': require('../assets/fonts/RedHatDisplay-Medium.ttf'),
+    'RedHatDisplay-Bold': require('../assets/fonts/RedHatDisplay-Bold.ttf'),
   });
 
-  useEffect(() => {
-    if (loaded) {
-      SplashScreen.hideAsync();
-    }
-  }, [loaded]);
+  const colorScheme = useColorScheme();
 
-  if (!loaded) {
+  useEffect(() => {
+    async function prepare() {
+      await SplashScreen.preventAutoHideAsync();
+      if (fontsLoaded) {
+        await SplashScreen.hideAsync();
+      }
+    }
+    prepare();
+  }, [fontsLoaded]);
+
+  if (!fontsLoaded) {
     return null;
   }
 
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <Stack>
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="+not-found" />
-      </Stack>
-    </ThemeProvider>
+    <QueryClientProvider client={queryClient}>
+      <AuthProvider>
+        <Stack 
+          screenOptions={{
+            headerShown: false,
+            headerStyle: {
+              backgroundColor: colorScheme === 'dark' ? '#000' : '#fff',
+            },
+            headerTintColor: colorScheme === 'dark' ? '#fff' : '#000',
+          }}
+        >
+          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          <Stack.Screen name="homeScreen" />
+          <Stack.Screen name="index" />
+          <Stack.Screen name="history" />
+          <Stack.Screen name="alipay" />
+          <Stack.Screen name="paymentType" />
+          <Stack.Screen name="accountDetails" />
+          <Stack.Screen name="success" />
+          <Stack.Screen name="homeOngoing" />
+          <Stack.Screen name="security" />
+          <Stack.Screen name="profile-screen" />
+          <Stack.Screen name="change-password" />
+          <Stack.Screen name="bank-card" />
+          <Stack.Screen name="paymentMethod" options={{ headerShown: false }} />
+          <Stack.Screen name="recipientDetails" options={{ headerShown: false }} />
+        </Stack>
+      </AuthProvider>
+    </QueryClientProvider>
   );
 }
