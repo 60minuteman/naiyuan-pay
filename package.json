@@ -19,6 +19,7 @@
     "@react-native-picker/picker": "2.7.5",
     "@tanstack/react-query": "latest",
     "axios": "^1.7.7",
+    "cobe": "^0.6.3",
     "expo": "latest",
     "expo-constants": "^16.0.2",
     "expo-font": "^12.0.10",
@@ -32,6 +33,8 @@
     "postinstall-postinstall": "^2.1.0",
     "react": "18.2.0",
     "react-native": "0.74.5",
+    "react-native-canvas": "^0.1.40",
+    "react-native-dotenv": "^3.4.11",
     "react-native-gesture-handler": "~2.16.1",
     "react-native-modal": "^13.0.1",
     "react-native-reanimated": "3.10.1",
@@ -39,7 +42,10 @@
     "react-native-screens": "3.31.1",
     "react-native-svg": "15.2.0",
     "react-native-swipe-list-view": "^3.2.9",
-    "react-native-toast-message": "^2.2.1"
+    "react-native-toast-message": "^2.1.6",
+    "react-native-webgl": "^0.8.0",
+    "react-native-webview": "13.8.6",
+    "three": "^0.169.0"
   },
   "devDependencies": {
     "@babel/core": "^7.25.8",

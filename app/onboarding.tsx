@@ -1,17 +1,16 @@
-import React from 'react';
-import { View, Text, StyleSheet, SafeAreaView, Platform, Dimensions, TouchableOpacity } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, Text, StyleSheet, SafeAreaView, Platform, Dimensions, TouchableOpacity, Image, Animated } from 'react-native';
 import { COLORS, SIZES, FONTS } from '../constants/theme';
 import Button from '../components/Button';
 import { useRouter, Stack } from 'expo-router';
 import { globalStyles } from '../styles/globalStyles';
-import { Globe } from '../components/Globe'; // Import the Globe component
 
 const { width, height } = Dimensions.get('window');
 
 const notifications = [
   {
     name: "Fast Payments",
-    description: "Send money quickly",
+    description: "Pay suppliers quickly",
     icon: "💸",
     color: "#00C9A7",
     time: "",
@@ -29,18 +28,23 @@ const notifications = [
     icon: "💱",
     color: "#FF3D71",
     time: "",
-  },
-  {
-    name: "24/7 Support",
-    description: "We're always here to help",
-    icon: "🆘",
-    color: "#1E86FF",
-    time: "",
-  },
+  }
 ];
 
 export default function OnboardingScreen() {
   const router = useRouter();
+  const [fadeAnims] = useState(notifications.map(() => new Animated.Value(0)));
+
+  useEffect(() => {
+    notifications.forEach((_, index) => {
+      Animated.timing(fadeAnims[index], {
+        toValue: 1,
+        duration: 500,
+        delay: index * 200,
+        useNativeDriver: true,
+      }).start();
+    });
+  }, []);
 
   return (
     <>
@@ -49,14 +53,41 @@ export default function OnboardingScreen() {
         <View style={styles.content}>
           <View style={styles.topSection}>
             <View style={styles.logoPlaceholder}>
-              <Text style={styles.logoText}>LOGO</Text>
+              <Image 
+                source={require('../assets/logow.png')}
+                style={styles.logo}
+                resizeMode="contain"
+              />
             </View>
             <Text style={styles.title}>Welcome to Naiyuan Pay</Text>
             <Text style={styles.subtitle}>Pay your Chinese merchants seamlessly with no hassle</Text>
           </View>
           
           <View style={styles.middleSection}>
-            <Globe />
+            {notifications.map((item, index) => (
+              <Animated.View
+                key={index}
+                style={[
+                  styles.notificationContainer,
+                  {
+                    opacity: fadeAnims[index],
+                    transform: [{
+                      translateY: fadeAnims[index].interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [50, 0],
+                      }),
+                    }],
+                  },
+                ]}
+              >
+                <AnimatedListItem
+                  name={item.name}
+                  description={item.description}
+                  icon={item.icon}
+                  color={item.color}
+                />
+              </Animated.View>
+            ))}
           </View>
         </View>
         
@@ -102,17 +133,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
   topSection: {
-    paddingTop: 80,
+    paddingTop: 40, // Reduced from 80
     alignItems: 'center',
   },
   logoPlaceholder: {
-    width: 59,
-    height: 59,
-    backgroundColor: COLORS.GRAY,
+    width: 60,
+    height: 60,
+    backgroundColor: COLORS.PRIMARY,
     justifyContent: 'center',
     alignItems: 'center',
-    borderRadius: 29.5,
+    borderRadius: 30,
     marginBottom: 20,
+  },
+  logo: {
+    width: 40,
+    height: 40,
   },
   logoText: {
     color: COLORS.WHITE,
@@ -134,8 +169,11 @@ const styles = StyleSheet.create({
   },
   middleSection: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+    paddingVertical: 40, // Increased padding
+    justifyContent: 'center', // Center content vertically
+  },
+  notificationContainer: {
+    marginBottom: 16, // Increased spacing between cards
   },
   bottomSection: {
     paddingBottom: 40,
@@ -167,7 +205,6 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.WHITE,
     borderRadius: 12,
     padding: 16,
-    marginBottom: 12,
     borderLeftWidth: 4,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },

@@ -1,73 +1,108 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, SafeAreaView, ScrollView, TouchableOpacity, Image, TextInput, ImageBackground } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, SafeAreaView, ScrollView, TouchableOpacity, Image, TextInput, ImageBackground, ActivityIndicator } from 'react-native';
 import { COLORS, FONTS } from '../constants/theme';
 import FontLoader from '../components/FontLoader';
 import { globalStyles } from '../styles/globalStyles';
 import { useRouter } from 'expo-router';
 import Modal from 'react-native-modal';
+import { getTransactions, getTransactionByReference } from '../services/api';
+import Toast from 'react-native-toast-message';
 
 const History: React.FC = () => {
   const router = useRouter();
   const [isTransactionDetailsVisible, setTransactionDetailsVisible] = useState(false);
   const [selectedTransaction, setSelectedTransaction] = useState(null);
+  const [transactions, setTransactions] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingDetails, setIsLoadingDetails] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filteredTransactions, setFilteredTransactions] = useState([]);
 
-  const transactions = [
-    {
-      id: '1',
-      title: 'Money Sent- Alipay',
-      subtitle: 'Yesterday',
-      amount: '₦10,000',
-      time: '10:30 PM',
-      status: 'Completed',
-      recipient: 'Alipay User',
-      description: 'Payment for goods',
-    },
-    {
-      id: '2',
-      title: 'Money Sent- Wechat',
-      subtitle: 'Yesterday',
-      amount: '₦15,000',
-      time: '2:45 PM',
-      status: 'Completed',
-      recipient: 'Wechat User',
-      description: 'Transfer to friend',
-    },
-    {
-      id: '3',
-      title: 'Money Sent- Bank Transfer',
-      subtitle: '2 days ago',
-      amount: '₦20,000',
-      time: '9:15 AM',
-      status: 'Completed',
-      sender: 'John Doe',
-      description: 'Salary payment',
-    },
-    {
-      id: '4',
-      title: 'Money Sent- PayPal',
-      subtitle: '3 days ago',
-      amount: '₦5,000',
-      time: '3:20 PM',
-      status: 'Completed',
-      recipient: 'PayPal User',
-      description: 'Online purchase',
-    },
-    {
-      id: '5',
-      title: 'Money Received- Venmo',
-      subtitle: '4 days ago',
-      amount: '₦8,000',
-      time: '11:45 AM',
-      status: 'Completed',
-      sender: 'Jane Smith',
-      description: 'Split bill payment',
-    },
-  ];
+  useEffect(() => {
+    fetchTransactions();
+  }, []);
 
-  const handleTransactionPress = (transaction) => {
-    setSelectedTransaction(transaction);
-    setTransactionDetailsVisible(true);
+  useEffect(() => {
+    if (searchQuery) {
+      const filtered = transactions.filter(transaction => 
+        transaction.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        transaction.amount.toString().includes(searchQuery)
+      );
+      setFilteredTransactions(filtered);
+    } else {
+      setFilteredTransactions(transactions);
+    }
+  }, [searchQuery, transactions]);
+
+  const fetchTransactions = async () => {
+    try {
+      setIsLoading(true);
+      const data = await getTransactions();
+      setTransactions(data);
+      setFilteredTransactions(data);
+    } catch (error) {
+      console.error('Error fetching transactions:', error);
+      Toast.show({
+        type: 'error',
+        text1: 'Error',
+        text2: 'Failed to load transactions',
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
+
+  const handleTransactionPress = async (transaction) => {
+    try {
+      setSelectedTransaction(transaction);
+      setTransactionDetailsVisible(true);
+      setIsLoadingDetails(true);
+
+      const details = await getTransactionByReference(transaction.reference);
+      setSelectedTransaction(details);
+    } catch (error) {
+      console.error('Error fetching transaction details:', error);
+      Toast.show({
+        type: 'error',
+        text1: 'Error',
+        text2: 'Failed to load transaction details',
+      });
+    } finally {
+      setIsLoadingDetails(false);
+    }
+  };
+
+  const renderTransactionItem = (transaction) => (
+    <TouchableOpacity 
+      key={transaction.id}
+      style={styles.activityItem}
+      onPress={() => handleTransactionPress(transaction)}
+    >
+      <View style={styles.activityIconContainer}>
+        <Image 
+          source={require('../assets/arrow-up-right.png')}
+          style={styles.activityIcon} 
+        />
+      </View>
+      <View style={styles.activityDetails}>
+        <Text style={styles.activityTitle}>{transaction.title}</Text>
+        <Text style={styles.activitySubtitle}>
+          {new Date(transaction.createdAt).toLocaleDateString()}
+        </Text>
+      </View>
+      <View style={styles.activityAmountContainer}>
+        <Text style={[
+          styles.activityAmount,
+          { color: transaction.type === 'CREDIT' ? '#00C853' : '#F04438' }
+        ]}>
+          ₦{transaction.amount.toLocaleString()}
+        </Text>
+        <Text style={styles.activityTime}>
+          {new Date(transaction.createdAt).toLocaleTimeString()}
+        </Text>
+      </View>
+    </TouchableOpacity>
+  );
 
   return (
     <FontLoader>
@@ -91,8 +126,10 @@ const History: React.FC = () => {
                 <Image source={require('../assets/search-icon.png')} style={styles.searchIcon} />
                 <TextInput
                   style={styles.searchInput}
-                  placeholder="Search here"
+                  placeholder="Search transactions"
                   placeholderTextColor="#A0A0A0"
+                  value={searchQuery}
+                  onChangeText={setSearchQuery}
                 />
               </View>
               <TouchableOpacity style={styles.filterButton}>
@@ -104,25 +141,13 @@ const History: React.FC = () => {
 
             <ScrollView style={styles.scrollView}>
               <View style={styles.transactionsContainer}>
-                {transactions.map((transaction) => (
-                  <TouchableOpacity 
-                    key={transaction.id}
-                    style={styles.activityItem}
-                    onPress={() => handleTransactionPress(transaction)}
-                  >
-                    <View style={styles.activityIconContainer}>
-                      <Image source={require('../assets/arrow-up-right.png')} style={styles.activityIcon} />
-                    </View>
-                    <View style={styles.activityDetails}>
-                      <Text style={styles.activityTitle}>{transaction.title}</Text>
-                      <Text style={styles.activitySubtitle}>{transaction.subtitle}</Text>
-                    </View>
-                    <View style={styles.activityAmountContainer}>
-                      <Text style={styles.activityAmount}>{transaction.amount}</Text>
-                      <Text style={styles.activityTime}>{transaction.time}</Text>
-                    </View>
-                  </TouchableOpacity>
-                ))}
+                {isLoading ? (
+                  <ActivityIndicator size="large" color={COLORS.PRIMARY} />
+                ) : filteredTransactions.length > 0 ? (
+                  filteredTransactions.map(renderTransactionItem)
+                ) : (
+                  <Text style={styles.noTransactionsText}>No transactions found</Text>
+                )}
               </View>
             </ScrollView>
           </View>
@@ -138,48 +163,72 @@ const History: React.FC = () => {
       >
         <View style={styles.transactionDetailsContent}>
           <View style={styles.indicator} />
-          <ScrollView>
-            <Text style={styles.transactionAmount}>¥ 50,100.73</Text>
-            <Text style={styles.transactionType}>Alipay Payment</Text>
-            <Text style={styles.transactionDate}>May 22 - 08:36AM</Text>
-            
-            <View style={styles.buttonContainer}>
-              <TouchableOpacity style={styles.primaryButton}>
-                <Text style={styles.primaryButtonText}>Send Again</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.secondaryButton}>
-                <Text style={styles.secondaryButtonText}>View Recipient Details</Text>
-              </TouchableOpacity>
-            </View>
+          {isLoadingDetails ? (
+            <ActivityIndicator size="large" color={COLORS.PRIMARY} />
+          ) : selectedTransaction ? (
+            <ScrollView>
+              <Text style={styles.transactionAmount}>¥ 50,100.73</Text>
+              <Text style={styles.transactionType}>Alipay Payment</Text>
+              <Text style={styles.transactionDate}>May 22 - 08:36AM</Text>
+              
+              <View style={styles.buttonContainer}>
+                <TouchableOpacity style={styles.primaryButton}>
+                  <Text style={styles.primaryButtonText}>Send Again</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.secondaryButton}>
+                  <Text style={styles.secondaryButtonText}>View Recipient Details</Text>
+                </TouchableOpacity>
+              </View>
 
-            <Text style={styles.transferProgressTitle}>Transfer in progress</Text>
-            <View style={styles.transferProgressContainer}>
-              {['Payment Received', 'Recipient Verified', 'Payment Completed'].map((step, index) => (
-                <View key={index} style={styles.transferProgressItem}>
-                  <View style={[
-                    styles.transferProgressIndicator,
-                    index > 0 && styles.unverifiedProgressIndicator
-                  ]} />
-                  <View style={styles.transferProgressTextContainer}>
-                    <Text style={styles.transferProgressItemTitle}>{step}</Text>
-                    <Text style={styles.transferProgressItemTime}>May 22 - 08:36AM</Text>
+              <Text style={styles.transferProgressTitle}>Transfer in progress</Text>
+              <View style={styles.transferProgressContainer}>
+                {['Payment Received', 'Recipient Verified', 'Payment Completed'].map((step, index) => (
+                  <View key={index} style={styles.transferProgressItem}>
+                    <View style={[
+                      styles.transferProgressIndicator,
+                      index > 0 && styles.unverifiedProgressIndicator
+                    ]} />
+                    <View style={styles.transferProgressTextContainer}>
+                      <Text style={styles.transferProgressItemTitle}>{step}</Text>
+                      <Text style={styles.transferProgressItemTime}>May 22 - 08:36AM</Text>
+                    </View>
                   </View>
-                </View>
-              ))}
-            </View>
+                ))}
+              </View>
 
-            <View style={styles.transactionReceiptContainer}>
-              <Text style={styles.transactionReceiptText}>Transaction Receipt</Text>
-              <TouchableOpacity style={styles.downloadButton}>
-                <Image source={require('../assets/download-icon.png')} style={styles.downloadIcon} />
-                <Text style={styles.downloadButtonText}>Download</Text>
-              </TouchableOpacity>
-            </View>
-          </ScrollView>
+              <View style={styles.transactionReceiptContainer}>
+                <Text style={styles.transactionReceiptText}>Transaction Receipt</Text>
+                <TouchableOpacity style={styles.downloadButton}>
+                  <Image source={require('../assets/download-icon.png')} style={styles.downloadIcon} />
+                  <Text style={styles.downloadButtonText}>Download</Text>
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+          ) : (
+            <Text style={styles.errorText}>Failed to load transaction details</Text>
+          )}
         </View>
       </Modal>
+      <Toast />
     </FontLoader>
   );
+};
+
+const additionalStyles = {
+  noTransactionsText: {
+    textAlign: 'center',
+    fontFamily: FONTS.REGULAR,
+    fontSize: 16,
+    color: COLORS.GRAY,
+    marginTop: 20,
+  },
+  errorText: {
+    textAlign: 'center',
+    fontFamily: FONTS.REGULAR,
+    fontSize: 16,
+    color: COLORS.ERROR,
+    marginTop: 20,
+  },
 };
 
 const styles = StyleSheet.create({
@@ -456,6 +505,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#FFFFFF',
   },
+  ...additionalStyles,
 });
 
 export default History;

@@ -1,7 +1,7 @@
 // screens/LoginScreen.tsx
 
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView, KeyboardAvoidingView, Platform, StatusBar, Image, Keyboard, Animated, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView, KeyboardAvoidingView, Platform, StatusBar, Image, Keyboard, Animated, Alert, Toast, ScrollView } from 'react-native';
 import { COLORS, FONTS } from '../constants/theme';
 import { login } from '../services/api';
 import { useAuth } from '../context/AuthContext';
@@ -15,10 +15,12 @@ import NetInfo from "@react-native-community/netinfo";
 const LoginScreen = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [emailError, setEmailError] = useState('');
+  const [passwordError, setPasswordError] = useState('');
   const { login: contextLogin } = useAuth();
   const router = useRouter();
   const [keyboardVisible, setKeyboardVisible] = useState(false);
-  const logoPosition = new Animated.Value(0);
+  const contentPosition = new Animated.Value(0);
   const buttonPosition = new Animated.Value(0);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -26,6 +28,33 @@ const LoginScreen = () => {
     'RedHatDisplay-Regular': require('../assets/fonts/RedHatDisplay-Regular.ttf'),
     'RedHatDisplay-Bold': require('../assets/fonts/RedHatDisplay-Bold.ttf'),
   });
+
+  const validateEmail = (email: string) => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!email) {
+      setEmailError('Email is required');
+      return false;
+    }
+    if (!emailRegex.test(email)) {
+      setEmailError('Please enter a valid email address');
+      return false;
+    }
+    setEmailError('');
+    return true;
+  };
+
+  const validatePassword = (password: string) => {
+    if (!password) {
+      setPasswordError('Password is required');
+      return false;
+    }
+    if (password.length < 6) {
+      setPasswordError('Password must be at least 6 characters long');
+      return false;
+    }
+    setPasswordError('');
+    return true;
+  };
 
   const testAsyncStorage = async () => {
     try {
@@ -44,36 +73,37 @@ const LoginScreen = () => {
     testAsyncStorage();
     const keyboardDidShowListener = Keyboard.addListener(
       'keyboardDidShow',
-      () => {
+      (event) => {
         setKeyboardVisible(true);
         Animated.parallel([
-          Animated.timing(logoPosition, {
-            toValue: -50,
-            duration: 300,
-            useNativeDriver: false,
+          Animated.timing(contentPosition, {
+            toValue: -event.endCoordinates.height * 0.5,
+            duration: 250,
+            useNativeDriver: true,
           }),
           Animated.timing(buttonPosition, {
-            toValue: -100,
-            duration: 300,
-            useNativeDriver: false,
+            toValue: -event.endCoordinates.height * 0.5,
+            duration: 250,
+            useNativeDriver: true,
           })
         ]).start();
       }
     );
+
     const keyboardDidHideListener = Keyboard.addListener(
       'keyboardDidHide',
       () => {
         setKeyboardVisible(false);
         Animated.parallel([
-          Animated.timing(logoPosition, {
+          Animated.timing(contentPosition, {
             toValue: 0,
-            duration: 300,
-            useNativeDriver: false,
+            duration: 250,
+            useNativeDriver: true,
           }),
           Animated.timing(buttonPosition, {
             toValue: 0,
-            duration: 300,
-            useNativeDriver: false,
+            duration: 250,
+            useNativeDriver: true,
           })
         ]).start();
       }
@@ -90,82 +120,154 @@ const LoginScreen = () => {
   }
 
   const handleLogin = async () => {
-    const netInfo = await NetInfo.fetch();
-    if (!netInfo.isConnected) {
-      Alert.alert('No Internet Connection', 'Please check your internet connection and try again.');
-      return;
-    }
-
-    setIsLoading(true);
     try {
-      const response = await login({ email, password });
-      await AsyncStorage.setItem('authToken', response.token);
-      await AsyncStorage.setItem('userId', response.user.id.toString());
-      console.log('Token after login:', response.token);
-      console.log('User ID after login:', response.user.id);
-      await contextLogin(response.token, response.user.id);
-      router.replace('/homeScreen');
-    } catch (error) {
-      console.error('Login failed:', error);
-      let errorMessage = 'An error occurred. Please try again later.';
-      if (axios.isAxiosError(error)) {
-        if (error.code === 'ECONNABORTED') {
-          errorMessage = 'Connection timed out. Please check your internet connection and try again.';
-        } else if (error.response) {
-          errorMessage = error.response.data.message || errorMessage;
-        }
+      setIsLoading(true);
+      
+      // Validate inputs
+      if (!validateEmail(email) || !validatePassword(password)) {
+        return;
       }
-      Alert.alert('Login Failed', errorMessage);
+
+      console.log('Attempting login for:', email);
+      const response = await login({ 
+        email: email.trim().toLowerCase(), 
+        password 
+      });
+
+      if (response.success && response.token) {
+        console.log('Login successful, setting up session...');
+        
+        // Store token and user data
+        await AsyncStorage.multiSet([
+          ['authToken', response.token],
+          ['userId', response.user.id.toString()]
+        ]);
+
+        // Update auth context
+        await contextLogin(response.token, response.user.id);
+        
+        console.log('Session setup complete, navigating to home...');
+        
+        // Navigate to home screen
+        router.replace('/homeScreen');
+        
+        // Show success message using Toast (make sure Toast is properly imported)
+        if (Toast && Toast.show) {
+          Toast.show({
+            type: 'success',
+            text1: 'Welcome Back!',
+            text2: `Logged in as ${response.user.firstName}`,
+            position: 'top',
+            visibilityTime: 2000,
+          });
+        }
+      } else {
+        throw new Error(response.message || 'Login failed');
+      }
+    } catch (err) {
+      console.error('Login error:', err);
+      const message = err instanceof Error ? err.message : 'An error occurred during login';
+      
+      // Show error message
+      if (Toast && Toast.show) {
+        Toast.show({
+          type: 'error',
+          text1: 'Login Failed',
+          text2: message,
+          position: 'top',
+          visibilityTime: 4000,
+        });
+      } else {
+        // Fallback error handling if Toast is not available
+        Alert.alert('Login Failed', message);
+      }
     } finally {
       setIsLoading(false);
     }
   };
 
   return (
-    <View style={styles.container}>
+    <KeyboardAvoidingView 
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      style={styles.container}
+      keyboardVerticalOffset={Platform.OS === "ios" ? -64 : 0}
+    >
       <StatusBar barStyle="light-content" backgroundColor="#5B6EF5" />
       <View style={styles.topSection}>
         <SafeAreaView style={styles.topContent}>
-          <TouchableOpacity style={styles.closeButton} onPress={() => router.back()}>
+          <TouchableOpacity 
+            style={styles.closeButton} 
+            onPress={() => router.back()}
+          >
             <Text style={styles.closeButtonText}>✕</Text>
           </TouchableOpacity>
           <View style={styles.logoContainer}>
-            <Image source={require('../assets/logow.png')} style={styles.logo} resizeMode="contain" />
+            <Image 
+              source={require('../assets/logow.png')}
+              style={styles.logo}
+              resizeMode="contain" 
+            />
           </View>
         </SafeAreaView>
       </View>
-      <KeyboardAvoidingView 
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        style={styles.bottomSection}
-        keyboardVerticalOffset={Platform.OS === "ios" ? 40 : 0}
+
+      <Animated.View 
+        style={[
+          styles.bottomSection,
+          {
+            transform: [{ translateY: contentPosition }]
+          }
+        ]}
       >
-        <Text style={styles.title}>Welcome back</Text>
-        <Text style={styles.subtitle}>
-          New here? <Text style={styles.createAccountLink} onPress={() => router.push('/signup1')}>Create account</Text>
-        </Text>
-        <CustomInput
-          value={email}
-          onChangeText={setEmail}
-          label="Email"
-          keyboardType="email-address"
-          autoCapitalize="none"
-        />
-        <CustomInput
-          value={password}
-          onChangeText={setPassword}
-          label="Password"
-          secureTextEntry
-        />
-        <Animated.View style={{ transform: [{ translateY: buttonPosition }] }}>
-          <TouchableOpacity style={styles.button} onPress={handleLogin} disabled={isLoading}>
-            <Text style={styles.buttonText}>{isLoading ? 'Loading...' : 'Get In'}</Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => router.push('/forgotPassword')}>
-            <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
-          </TouchableOpacity>
-        </Animated.View>
-      </KeyboardAvoidingView>
-    </View>
+        <ScrollView 
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <Text style={styles.title}>Welcome back</Text>
+          <Text style={styles.subtitle}>
+            New here? <Text style={styles.createAccountLink} onPress={() => router.push('/signup1')}>Create account</Text>
+          </Text>
+          <CustomInput
+            value={email}
+            onChangeText={(text) => {
+              setEmail(text);
+              validateEmail(text);
+            }}
+            label="Email"
+            keyboardType="email-address"
+            autoCapitalize="none"
+            error={emailError}
+          />
+          <CustomInput
+            value={password}
+            onChangeText={(text) => {
+              setPassword(text);
+              validatePassword(text);
+            }}
+            label="Password"
+            secureTextEntry
+            error={passwordError}
+          />
+          <Animated.View style={{
+            transform: [{ translateY: buttonPosition }]
+          }}>
+            <TouchableOpacity 
+              style={styles.button} 
+              onPress={handleLogin} 
+              disabled={isLoading}
+            >
+              <Text style={styles.buttonText}>
+                {isLoading ? 'Loading...' : 'Get In'}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => router.push('/forgotPassword')}>
+              <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
+            </TouchableOpacity>
+          </Animated.View>
+        </ScrollView>
+      </Animated.View>
+    </KeyboardAvoidingView>
   );
 };
 
@@ -187,8 +289,8 @@ const styles = StyleSheet.create({
   bottomSection: {
     flex: 1,
     backgroundColor: '#FAFAFA',
-    padding: 20,
-    justifyContent: 'flex-start',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
   },
   closeButton: {
     alignSelf: 'flex-start',
@@ -204,6 +306,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    marginBottom: Platform.OS === 'ios' ? 20 : 0,
   },
   logo: {
     width: '30%',
@@ -246,6 +349,10 @@ const styles = StyleSheet.create({
     fontSize: 16,
     textAlign: 'center',
     fontFamily: 'RedHatDisplay-Regular',
+  },
+  scrollContent: {
+    flexGrow: 1,
+    paddingHorizontal: 20,
   },
 });
 

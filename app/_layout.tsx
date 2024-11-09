@@ -7,6 +7,7 @@ import { useFonts } from 'expo-font';
 import { AuthProvider } from '../context/AuthContext';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useState } from 'react';
+import Toast from 'react-native-toast-message';
 
 const [queryClient] = useState(() => new QueryClient());
 
@@ -61,6 +62,7 @@ export default function RootLayout() {
           <Stack.Screen name="paymentMethod" options={{ headerShown: false }} />
           <Stack.Screen name="recipientDetails" options={{ headerShown: false }} />
         </Stack>
+        <Toast />
       </AuthProvider>
     </QueryClientProvider>
   );

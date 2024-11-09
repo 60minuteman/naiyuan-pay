@@ -67,23 +67,17 @@ export default function SignUpScreen1() {
     // Remove any non-digit characters
     const digits = phone.replace(/\D/g, '');
     
-    // If it starts with 0, format with +234
+    // If starts with 0, remove it and add 234
     if (digits.startsWith('0')) {
-      return '+234' + digits.substring(1);
+      return '234' + digits.substring(1);
     }
     
-    // If it starts with 234, add +
-    if (digits.startsWith('234')) {
-      return '+' + digits;
+    // If doesn't start with 234, add it
+    if (!digits.startsWith('234')) {
+      return '234' + digits;
     }
     
-    // If it's just 10 digits starting with network code (7-9), add +234
-    if (digits.length === 10 && /^[789]/.test(digits)) {
-      return '+234' + digits;
-    }
-    
-    // If none of the above, assume it needs +234
-    return '+234' + digits;
+    return digits;
   };
 
   const validatePassword = (password: string) => {
@@ -98,32 +92,42 @@ export default function SignUpScreen1() {
     try {
       setError('');
       setIsLoading(true);
+      
+      // Network check
+      const netInfo = await NetInfo.fetch();
+      if (!netInfo.isConnected) {
+        throw new Error('No internet connection. Please check your network.');
+      }
 
-      // Basic validation
+      // Validate inputs
       if (!email || !password || !fullName || !phoneNumber) {
-        setError('All fields are required');
-        setIsLoading(false);
-        return;
+        throw new Error('All fields are required');
+      }
+
+      if (!validateEmail(email)) {
+        throw new Error('Please enter a valid email address');
+      }
+
+      if (!validatePassword(password)) {
+        throw new Error('Password must be at least 6 characters long');
       }
 
       const names = fullName.trim().split(' ');
       if (names.length < 2) {
-        setError('Please enter both first and last name');
-        setIsLoading(false);
-        return;
+        throw new Error('Please enter both first and last name');
       }
 
       const [firstName, ...lastNameParts] = names;
       const lastName = lastNameParts.join(' ');
 
-      // Format phone number (ensure it starts with 234)
-      let formattedPhoneNumber = phoneNumber.replace(/\D/g, '');
-      if (formattedPhoneNumber.startsWith('0')) {
-        formattedPhoneNumber = '234' + formattedPhoneNumber.substring(1);
-      } else if (!formattedPhoneNumber.startsWith('234')) {
-        formattedPhoneNumber = '234' + formattedPhoneNumber;
+      // Format phone number
+      const formattedPhoneNumber = formatPhoneNumber(phoneNumber);
+      if (!validatePhoneNumber(formattedPhoneNumber)) {
+        throw new Error('Please enter a valid Nigerian phone number');
       }
 
+      console.log('Signup - Starting signup process...');
+      
       const signupData = {
         email: email.trim().toLowerCase(),
         password,
@@ -132,60 +136,38 @@ export default function SignUpScreen1() {
         phoneNumber: formattedPhoneNumber
       };
 
-      console.log('Submitting signup data:', {
+      console.log('Signup - Sending data:', {
         ...signupData,
         password: '[REDACTED]'
       });
 
-      // Show loading toast
-      Toast.show({
-        type: 'info',
-        text1: 'Creating your account...',
-        text2: 'This might take a moment',
-        position: 'top',
-        autoHide: false,
-      });
-
       const response = await signup(signupData);
-      
-      // Hide loading toast
-      Toast.hide();
+      console.log('Signup - Response received:', response);
 
-      if (response?.token) {
-        await AsyncStorage.setItem('authToken', response.token);
-        if (response.user?.id) {
-          await AsyncStorage.setItem('userId', response.user.id.toString());
-        }
-        
-        Toast.show({
-          type: 'success',
-          text1: 'Account Created',
-          text2: 'Proceeding to verification...',
-          position: 'top',
-          visibilityTime: 2000,
-        });
-
+      if (response.success && response.otpSent) {
+        console.log('Signup - OTP sent successfully, navigating to verification...');
         router.push({
           pathname: '/signup2',
           params: {
-            email,
-            firstName,
-            lastName,
-            password
+            email: response.email,
+            firstName: response.user.firstName,
+            lastName: response.user.lastName,
+            userId: response.userId.toString(),
+            isNewUser: response.isNewUser
           }
         });
       } else {
-        throw new Error('Invalid response from server');
+        throw new Error(response.message || 'Failed to send OTP');
       }
+
     } catch (err) {
-      console.error('Signup error:', err);
-      const errorMessage = err instanceof Error ? err.message : 'Signup failed';
-      setError(errorMessage);
+      const message = err instanceof Error ? err.message : 'Signup failed';
+      console.error('Signup error:', message);
       
       Toast.show({
         type: 'error',
         text1: 'Signup Failed',
-        text2: errorMessage,
+        text2: message,
         position: 'top',
         visibilityTime: 4000,
       });

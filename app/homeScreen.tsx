@@ -9,13 +9,14 @@ import { useRouter } from 'expo-router';
 import { useAuth } from '../context/AuthContext';
 import { getUserDetails } from '../services/userService';
 import { signOut } from '../services/authService';
+import Toast from 'react-native-toast-message';
 
 const { width } = Dimensions.get('window');
 
 const HomeScreen: React.FC = () => {
   const navigation = useNavigation();
   const router = useRouter();
-  const { user, setUser } = useAuth();
+  const { user, setUser, logout } = useAuth();
   const [userDetails, setUserDetails] = useState(null);
   const [isBottomSheetVisible, setBottomSheetVisible] = useState(false);
   const [isOngoingTransactionsVisible, setOngoingTransactionsVisible] = useState(false);
@@ -147,13 +148,37 @@ const HomeScreen: React.FC = () => {
 
   const handleSignOut = async () => {
     try {
+      setIsLoading(true);
+      console.log('HomeScreen - Starting sign out process');
+
+      // Use the signOut from authService
       await signOut();
-      setUser(null); // Clear the user from the auth context
-      setIsSidePanelVisible(false);
-      router.replace('/login'); // Navigate to the login screen
+      
+      // Use the logout from AuthContext to clear the state
+      await logout();
+      
+      // Show success message
+      Toast.show({
+        type: 'success',
+        text1: 'Signed Out',
+        text2: 'You have been successfully logged out',
+        position: 'top',
+        visibilityTime: 2000,
+      });
+      
+      // Navigate to login screen
+      router.replace('/login');
     } catch (error) {
-      console.error('Error signing out:', error);
-      Alert.alert('Error', 'Failed to sign out. Please try again.');
+      console.error('HomeScreen - Error signing out:', error);
+      Toast.show({
+        type: 'error',
+        text1: 'Error',
+        text2: 'Failed to sign out. Please try again.',
+        position: 'top',
+        visibilityTime: 3000,
+      });
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -436,7 +461,11 @@ const HomeScreen: React.FC = () => {
                   {[
                     { icon: require('../assets/rates.png'), title: 'Our Rates' },
                     { icon: require('../assets/Chat.png'), title: 'Support' },
-                    { icon: require('../assets/Logout.png'), title: 'Sign Out', onPress: handleSignOut },
+                    { 
+                      icon: require('../assets/Logout.png'), 
+                      title: isLoading ? 'Signing Out...' : 'Sign Out',
+                      onPress: isLoading ? undefined : handleSignOut 
+                    },
                   ].map((item, index) => (
                     <TouchableOpacity 
                       key={index} 
@@ -446,14 +475,30 @@ const HomeScreen: React.FC = () => {
                           backgroundColor: '#F3F3F3',
                           marginBottom: 8, 
                           borderRadius: 15,
-                          height: 62
+                          height: 62,
+                          opacity: item.title === 'Signing Out...' ? 0.7 : 1
                         }
                       ]}
                       onPress={item.onPress}
+                      disabled={isLoading}
                     >
-                      <Image source={item.icon} style={globalStyles.menuIcon} />
+                      <Image 
+                        source={item.icon} 
+                        style={[
+                          globalStyles.menuIcon,
+                          isLoading && item.title.includes('Sign Out') && { opacity: 0.5 }
+                        ]} 
+                      />
                       <View style={globalStyles.menuTextContainer}>
-                        <Text style={[globalStyles.menuTitle, { fontSize: 16 }]}>{item.title}</Text>
+                        <Text 
+                          style={[
+                            globalStyles.menuTitle, 
+                            { fontSize: 16 },
+                            isLoading && item.title.includes('Sign Out') && { color: '#999' }
+                          ]}
+                        >
+                          {item.title}
+                        </Text>
                       </View>
                     </TouchableOpacity>
                   ))}

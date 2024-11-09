@@ -1,175 +1,191 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { 
-  View, 
-  Text, 
-  TouchableOpacity, 
-  SafeAreaView, 
-  StyleSheet, 
-  StatusBar, 
-  KeyboardAvoidingView, 
-  Platform,
-  ScrollView,
-  Keyboard,
-  Alert
-} from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, SafeAreaView, StyleSheet, StatusBar, Platform, TouchableOpacity, KeyboardAvoidingView } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import OTPInput from '../components/OTPInput';
-import Header from '../components/Header';
-import Button from '../components/Button';
-import { globalStyles } from '../styles/globalStyles';
-import { FONTS, COLORS } from '../constants/theme';
+import NetInfo from '@react-native-community/netinfo';
 import { verifyOTP, resendOTP } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import CustomInput from '../components/CustomInput';
+import Header from '../components/Header';
+import Button from '../components/Button';
+import { globalStyles } from '../styles/globalStyles';
+import { COLORS, FONTS } from '../constants/theme';
+import Toast from 'react-native-toast-message';
+
+const validateOTP = (otp: string) => {
+  return otp.length === 6 && /^\d{6}$/.test(otp);
+};
 
 export default function SignUpScreen2() {
   const router = useRouter();
-  const { email, isExistingUser, firstName, lastName, password } = useLocalSearchParams();
+  const params = useLocalSearchParams();
   const { login } = useAuth();
-  const otpInputRef = useRef<any>(null);
-  const [resendTimer, setResendTimer] = useState(30);
-  const [canResend, setCanResend] = useState(false);
   const [otp, setOtp] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isResending, setIsResending] = useState(false);
+  const [resendTimer, setResendTimer] = useState(30);
+  
+  const email = params.email as string;
 
   useEffect(() => {
-    setTimeout(() => otpInputRef.current?.focus(), 100);
-    startResendTimer();
-  }, []);
+    let interval: NodeJS.Timeout;
+    if (resendTimer > 0) {
+      interval = setInterval(() => {
+        setResendTimer((prev) => prev - 1);
+      }, 1000);
+    }
+    return () => {
+      if (interval) {
+        clearInterval(interval);
+      }
+    };
+  }, [resendTimer]);
 
-  const startResendTimer = () => {
-    setCanResend(false);
-    setResendTimer(30);
-    const timer = setInterval(() => {
-      setResendTimer((prevTime) => {
-        if (prevTime <= 1) {
-          clearInterval(timer);
-          setCanResend(true);
-          return 0;
-        }
-        return prevTime - 1;
-      });
-    }, 1000);
-  };
-
-  const handleOTPFilled = (otp: string) => {
-    setOtp(otp);
-  };
-
-  const handleVerify = async () => {
-    setIsLoading(true);
+  const handleVerifyOTP = async () => {
     try {
-      const data = await verifyOTP(
-        email as string,
-        otp,
-        password as string,
-        firstName as string,
-        lastName as string
-      );
-      const userId = data.user && data.user.id ? data.user.id : 'N/A';
-      console.log('User verified with ID:', userId);
-      await AsyncStorage.setItem('authToken', data.token);
-      await AsyncStorage.setItem('userId', userId.toString());
-      await login(data.token, userId);
-      router.push('/signup3');
+      setIsLoading(true);
+      setError('');
+
+      if (!validateOTP(otp)) {
+        throw new Error('Please enter a valid 6-digit OTP');
+      }
+
+      console.log('Verifying OTP for:', email, 'OTP:', otp);
+      const response = await verifyOTP(email, otp.trim());
+
+      if (response.success && response.token) {
+        console.log('OTP verification successful, setting tokens...');
+        await AsyncStorage.multiSet([
+          ['authToken', response.token],
+          ['userId', response.user.id.toString()]
+        ]);
+
+        console.log('Tokens set, logging in...');
+        await login(response.token, response.user.id);
+        
+        console.log('Login successful, navigating to signup3...');
+        router.push('/signup3');
+      } else {
+        throw new Error(response.message || 'OTP verification failed');
+      }
+
     } catch (err) {
-      console.error('Error verifying OTP:', err);
-      Alert.alert('Verification Failed', err.message || 'Please try again');
+      const message = err instanceof Error ? err.message : 'Verification failed';
+      console.error('OTP Verification error:', message);
+      setError(message);
+      Toast.show({
+        type: 'error',
+        text1: 'Verification Failed',
+        text2: message,
+        position: 'top',
+        visibilityTime: 3000,
+      });
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleResendOTP = async () => {
-    if (canResend) {
-      setIsLoading(true);
-      try {
-        await resendOTP(email as string);
-        startResendTimer();
-        setError('');
-      } catch (error) {
-        console.error('Error resending OTP:', error);
-        setError('Failed to resend OTP');
-      } finally {
-        setIsLoading(false);
-      }
+  const handleOTPChange = (text: string) => {
+    const cleaned = text.replace(/\D/g, '').slice(0, 6);
+    setOtp(cleaned);
+    
+    if (cleaned.length === 6) {
+      handleVerifyOTP();
     }
   };
 
-  const handleChangeEmail = () => {
-    console.log('Changing email');
+  const handleResendOTP = async () => {
+    try {
+      setIsResending(true);
+      setError('');
+      
+      await resendOTP(email);
+      setResendTimer(30);
+      
+      Toast.show({
+        type: 'success',
+        text1: 'OTP Resent',
+        text2: 'Please check your email for the new OTP',
+        position: 'top',
+        visibilityTime: 3000,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to resend OTP';
+      setError(message);
+      Toast.show({
+        type: 'error',
+        text1: 'Error',
+        text2: message,
+        position: 'top',
+        visibilityTime: 3000,
+      });
+    } finally {
+      setIsResending(false);
+    }
   };
 
   const handleHelpPress = () => {
     console.log('Help icon pressed');
   };
 
-  const isLightBackground = COLORS.WHITE === '#FFFFFF';
-
   return (
-    <>
-      <StatusBar 
-        barStyle={isLightBackground ? 'dark-content' : 'light-content'}
-        backgroundColor={COLORS.WHITE}
-      />
-      <SafeAreaView style={[globalStyles.safeArea, styles.safeArea]}>
-        <Header showBack={true} onHelpPress={handleHelpPress} variant="default" />
-        <KeyboardAvoidingView 
-          behavior={Platform.OS === "ios" ? "padding" : "height"}
-          style={styles.keyboardAvoidingView}
-          keyboardVerticalOffset={Platform.OS === "ios" ? 20 : 0}
-        >
-          <ScrollView 
-            contentContainerStyle={styles.scrollViewContent}
-            keyboardShouldPersistTaps="handled"
+    <SafeAreaView style={[globalStyles.safeArea, styles.safeArea]}>
+      <Header showBack={true} onHelpPress={handleHelpPress} variant="default" />
+      <KeyboardAvoidingView 
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        style={[globalStyles.container, { flex: 1 }]}
+      >
+        <View style={globalStyles.titleContainer}>
+          <Text style={styles.title}>Verify your email</Text>
+          <Text style={styles.subtitle}>
+            Please enter the 6-digit code sent to {email}
+          </Text>
+        </View>
+        <View style={{ flex: 1 }}>
+          <CustomInput
+            label="Enter OTP"
+            value={otp}
+            onChangeText={handleOTPChange}
+            keyboardType="numeric"
+            maxLength={6}
+            placeholder="Enter 6-digit code"
+          />
+          
+          <TouchableOpacity
+            onPress={handleResendOTP}
+            disabled={resendTimer > 0 || isResending}
+            style={styles.resendButton}
           >
-            <View style={globalStyles.container}>
-              <View style={globalStyles.titleContainer}>
-                <Text style={styles.title}>Enter verification code</Text>
-                <Text style={styles.subtitle}>
-                  Enter code sent to your email address{'\n'}
-                  {email}{' '}
-                  <Text style={styles.changeEmail} onPress={handleChangeEmail}>
-                    Change Email
-                  </Text>
-                </Text>
-              </View>
-              <View style={styles.otpContainer}>
-                <OTPInput onOTPFilled={handleOTPFilled} ref={otpInputRef} />
-              </View>
-              {error ? <Text style={styles.errorText}>{error}</Text> : null}
-              <TouchableOpacity onPress={handleResendOTP} disabled={!canResend || isLoading}>
-                <Text style={[styles.resendText, (!canResend || isLoading) && styles.resendTextDisabled]}>
-                  {canResend ? 'Resend Code' : `Resend Code in ${resendTimer}s`}
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </ScrollView>
-          <View style={styles.buttonContainer}>
-            <Button
-              title="Verify"
-              onPress={handleVerify}
-              disabled={otp.length !== 6 || isLoading}
-              loading={isLoading}
-            />
-          </View>
-        </KeyboardAvoidingView>
-      </SafeAreaView>
-    </>
+            <Text style={[
+              styles.resendText,
+              (resendTimer > 0 || isResending) && styles.resendTextDisabled
+            ]}>
+              {resendTimer > 0
+                ? `Resend code in ${resendTimer}s`
+                : isResending
+                ? 'Sending...'
+                : 'Resend code'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+        <View style={[globalStyles.buttonContainer, styles.buttonContainer]}>
+          <Button
+            title="Verify"
+            onPress={handleVerifyOTP}
+            disabled={!validateOTP(otp) || isLoading}
+            loading={isLoading}
+          />
+        </View>
+      </KeyboardAvoidingView>
+      <Toast />
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   safeArea: {
     backgroundColor: COLORS.WHITE,
-    flex: 1,
-  },
-  keyboardAvoidingView: {
-    flex: 1,
-  },
-  scrollViewContent: {
-    flexGrow: 1,
   },
   title: {
     fontFamily: FONTS.BOLD,
@@ -180,36 +196,22 @@ const styles = StyleSheet.create({
   subtitle: {
     fontFamily: FONTS.REGULAR,
     fontSize: 16,
-    lineHeight: 19.2,
     color: COLORS.GRAY,
     width: 342,
-    marginBottom: 32,
   },
-  changeEmail: {
-    color: COLORS.PRIMARY,
-    textDecorationLine: 'underline',
-  },
-  otpContainer: {
+  resendButton: {
+    marginTop: 16,
     alignItems: 'center',
   },
   resendText: {
-    fontFamily: FONTS.REGULAR,
-    fontSize: 18,
     color: COLORS.PRIMARY,
-    textAlign: 'center',
-    marginTop: 20,
+    fontSize: 16,
+    fontFamily: FONTS.REGULAR,
   },
   resendTextDisabled: {
     color: COLORS.GRAY,
   },
   buttonContainer: {
-    paddingHorizontal: 16,
-    paddingBottom: Platform.OS === 'ios' ? 20 : 20,
-    paddingTop: 20,
-  },
-  errorText: {
-    color: 'red',
-    textAlign: 'center',
-    marginTop: 10,
-  },
+    marginBottom: Platform.OS === 'ios' ? 20 : 10,
+  }
 });

@@ -1,38 +1,18 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { EXPO_PUBLIC_API_URL } from '@env';
+import api from './api';
 
-const API_URL = 'http://192.168.51.59:5001/api'; // This should be your actual API URL
+const API_URL = EXPO_PUBLIC_API_URL || 'https://naiyuan-backend.onrender.com'; // This should be your actual API URL
 
-export const login = async (credentials) => {
+export const login = async (credentials: { email: string; password: string }) => {
   try {
-    console.log('Attempting to reach server at:', API_URL);
-    const response = await axios.post(`${API_URL}/auth/login`, credentials, {
-      timeout: 10000 // 10 seconds timeout
-    });
-    console.log('Server response:', response.data);
-
-    if (response.data && response.data.token && response.data.user) {
-      await AsyncStorage.setItem('authToken', response.data.token);
-      await AsyncStorage.setItem('userData', JSON.stringify(response.data.user));
-      console.log('Token and user data stored successfully:', response.data.user);
-      return response.data;
-    } else {
-      throw new Error('Invalid response from server');
-    }
+    console.log('AuthService - Login attempt:', credentials.email);
+    const response = await api.post('/auth/login', credentials);
+    console.log('AuthService - Login response:', response.data);
+    return response.data;
   } catch (error) {
-    console.error('Login error:', error);
-    if (axios.isAxiosError(error)) {
-      if (error.code === 'ECONNABORTED') {
-        console.error('Request timed out');
-      } else if (error.response) {
-        console.error('Error response:', error.response.data);
-        console.error('Error status:', error.response.status);
-      } else if (error.request) {
-        console.error('No response received:', error.request);
-      } else {
-        console.error('Error setting up request:', error.message);
-      }
-    }
+    console.error('AuthService - Login error:', error);
     throw error;
   }
 };
@@ -65,15 +45,29 @@ export const getAuthToken = async () => {
 
 // ... sign out
 
-export const signOut = async () => {
+export const signOut = async (): Promise<{ success: boolean; message: string }> => {
   try {
-    await AsyncStorage.removeItem('authToken');
-    await AsyncStorage.removeItem('userData');
-    // Clear any other stored data related to the user session
-    console.log('User signed out successfully');
-    return true;
+    console.log('AuthService - Starting sign out process');
+    
+    const token = await AsyncStorage.getItem('authToken');
+    
+    if (token) {
+      try {
+        await api.post('/auth/logout');
+      } catch (error) {
+        console.warn('AuthService - Failed to call logout endpoint:', error);
+      }
+    }
+
+    const keysToRemove = ['authToken', 'userId', 'userData'];
+    await AsyncStorage.multiRemove(keysToRemove);
+    
+    return {
+      success: true,
+      message: 'Logged out successfully'
+    };
   } catch (error) {
-    console.error('Error during sign out:', error);
-    throw error;
+    console.error('AuthService - Sign out error:', error);
+    throw new Error('Failed to sign out properly');
   }
 };

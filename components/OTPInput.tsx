@@ -1,92 +1,143 @@
-import React, { useState, useRef, forwardRef, useImperativeHandle } from 'react';
-import { View, TextInput, StyleSheet, Dimensions } from 'react-native';
+import React, { useRef } from 'react';
+import { 
+  View, 
+  TextInput, 
+  StyleSheet, 
+  Clipboard,
+  Platform,
+  NativeSyntheticEvent,
+  TextInputKeyPressEventData 
+} from 'react-native';
 import { COLORS, FONTS } from '../constants/theme';
-import { useWindowDimensions } from 'react-native';
-
-const { width: SCREEN_WIDTH } = useWindowDimensions();
-const BOX_COUNT = 6;
-const BOX_SIZE = SCREEN_WIDTH * 0.12; // 12% of screen width
-const SPACING = SCREEN_WIDTH * 0.02; // 2% of screen width
 
 interface OTPInputProps {
-  onOTPFilled: (otp: string) => void;
+  value: string;
+  onChange: (value: string) => void;
+  length: number;
+  disabled?: boolean;
+  allowPaste?: boolean;
+  autoFocus?: boolean;
 }
 
-const OTPInput = forwardRef<{ focus: () => void }, OTPInputProps>(({ onOTPFilled }, ref) => {
-  const [otp, setOTP] = useState(Array(BOX_COUNT).fill(''));
-  const inputRefs = useRef<Array<TextInput | null>>([]);
+const OTPInput: React.FC<OTPInputProps> = ({
+  value,
+  onChange,
+  length,
+  disabled,
+  allowPaste = true,
+  autoFocus = true
+}) => {
+  const inputRef = useRef<TextInput>(null);
 
-  useImperativeHandle(ref, () => ({
-    focus: () => inputRefs.current[0]?.focus(),
-  }));
-
-  const handleOTPChange = (text: string, index: number) => {
-    const newOTP = [...otp];
-    newOTP[index] = text;
-    setOTP(newOTP);
-
-    if (text.length === 1 && index < BOX_COUNT - 1) {
-      inputRefs.current[index + 1]?.focus();
+  const handleChange = async (text: string) => {
+    // Handle pasting
+    if (allowPaste && text.length > 1) {
+      // Clean the input to only include numbers
+      const cleanedText = text.replace(/[^0-9]/g, '');
+      // Take only the first {length} characters
+      const otpText = cleanedText.slice(0, length);
+      onChange(otpText);
+      return;
     }
 
-    if (newOTP.every(digit => digit !== '')) {
-      onOTPFilled(newOTP.join(''));
+    // Handle normal input
+    const cleaned = text.replace(/[^0-9]/g, '');
+    if (cleaned.length <= length) {
+      onChange(cleaned);
     }
   };
 
-  const handleKeyPress = (event: any, index: number) => {
-    if (event.nativeEvent.key === 'Backspace' && index > 0 && otp[index] === '') {
-      const newOTP = [...otp];
-      newOTP[index - 1] = '';
-      setOTP(newOTP);
-      inputRefs.current[index - 1]?.focus();
+  const handleKeyPress = (e: NativeSyntheticEvent<TextInputKeyPressEventData>) => {
+    if (e.nativeEvent.key === 'Backspace' && value.length === 0) {
+      // Handle backspace when empty
+      onChange('');
     }
   };
 
   return (
     <View style={styles.container}>
-      {otp.map((digit, index) => (
-        <React.Fragment key={index}>
-          <TextInput
-            style={styles.input}
-            value={digit}
-            onChangeText={(text) => handleOTPChange(text, index)}
-            keyboardType="numeric"
-            maxLength={1}
-            ref={(ref) => (inputRefs.current[index] = ref)}
-            onKeyPress={(event) => handleKeyPress(event, index)}
-          />
-          {index === 2 && <View style={styles.dash} />}
-        </React.Fragment>
-      ))}
+      <TextInput
+        ref={inputRef}
+        style={[
+          styles.hiddenInput,
+          Platform.OS === 'web' && styles.webInput
+        ]}
+        value={value}
+        onChangeText={handleChange}
+        maxLength={length}
+        keyboardType="number-pad"
+        autoFocus={autoFocus}
+        editable={!disabled}
+        onKeyPress={handleKeyPress}
+        caretHidden={true}
+      />
+      <View style={styles.inputsContainer}>
+        {Array(length)
+          .fill(0)
+          .map((_, index) => (
+            <View
+              key={index}
+              style={[
+                styles.inputBox,
+                value[index] ? styles.inputFilled : null,
+                disabled ? styles.inputDisabled : null
+              ]}
+            >
+              <Text style={styles.inputText}>
+                {value[index] || ''}
+              </Text>
+            </View>
+          ))}
+      </View>
     </View>
   );
-});
+};
 
 const styles = StyleSheet.create({
   container: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
     width: '100%',
-    marginBottom: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  input: {
-    width: BOX_SIZE,
-    height: BOX_SIZE,
-    borderRadius: BOX_SIZE * 0.2,
-    backgroundColor: '#EBEBED',
-    textAlign: 'center',
-    fontSize: BOX_SIZE * 0.5,
+  hiddenInput: {
+    position: 'absolute',
+    width: 1,
+    height: 1,
+    opacity: 0,
+  },
+  webInput: {
+    width: '100%',
+    height: 'auto',
+    opacity: 1,
+  },
+  inputsContainer: {
+    width: '100%',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+  },
+  inputBox: {
+    width: 45,
+    height: 45,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: COLORS.GRAY,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.WHITE,
+  },
+  inputFilled: {
+    borderColor: COLORS.PRIMARY,
+    backgroundColor: COLORS.PRIMARY + '10',
+  },
+  inputDisabled: {
+    backgroundColor: COLORS.GRAY + '20',
+    borderColor: COLORS.GRAY,
+  },
+  inputText: {
+    fontSize: 24,
     fontFamily: FONTS.BOLD,
-    color: COLORS.BLACK,
-    marginHorizontal: SPACING / 2,
-  },
-  dash: {
-    width: SPACING * 2,
-    height: 2,
-    backgroundColor: COLORS.GRAY,
-    marginHorizontal: SPACING,
+    color: COLORS.PRIMARY,
   },
 });
 

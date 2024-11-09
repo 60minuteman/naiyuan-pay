@@ -2,6 +2,12 @@ import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
 
+// Add new interfaces
+interface JWTToken {
+  token: string;
+  expiresIn: number;
+}
+
 const API_URL = 'https://naiyuan-backend.onrender.com';  // Remove /api if it's not in the backend routes
 
 const api = axios.create({
@@ -16,6 +22,12 @@ const api = axios.create({
 // Add logging to see the full URL being requested
 api.interceptors.request.use(
   async (config) => {
+    // Check network connection
+    const netInfo = await NetInfo.fetch();
+    if (!netInfo.isConnected) {
+      throw new Error('No internet connection. Please check your network.');
+    }
+
     console.log('API - Full request URL:', `${config.baseURL}${config.url}`);
     console.log('API - Request method:', config.method);
     console.log('API - Request data:', config.data);
@@ -31,6 +43,7 @@ api.interceptors.request.use(
     return config;
   },
   (error) => {
+    console.error('API - Request interceptor error:', error);
     return Promise.reject(error);
   }
 );
@@ -60,6 +73,12 @@ api.interceptors.response.use(
         throw new Error('Server error occurred. Please try again later.');
       }
 
+      if (error.response?.status === 401) {
+        // Handle unauthorized access
+        AsyncStorage.removeItem('authToken');
+        throw new Error('Session expired. Please login again.');
+      }
+
       const message = error.response?.data?.message
         ? Array.isArray(error.response.data.message)
           ? error.response.data.message.join(', ')
@@ -68,6 +87,7 @@ api.interceptors.response.use(
 
       throw new Error(message);
     }
+    console.error('API - Non-Axios error:', error);
     return Promise.reject(error);
   }
 );
@@ -75,12 +95,13 @@ api.interceptors.response.use(
 // Add request retry interceptor
 api.interceptors.response.use(undefined, async (error) => {
   if (axios.isAxiosError(error)) {
-    const config = error.config;
+    const config = error.config as any;
     if (!config || !config.retry) {
       return Promise.reject(error);
     }
     
     config.retry -= 1;
+    console.log('API - Retrying request. Attempts remaining:', config.retry);
     
     const delayRetry = new Promise(resolve => {
       setTimeout(resolve, 1000);
@@ -89,8 +110,32 @@ api.interceptors.response.use(undefined, async (error) => {
     await delayRetry;
     return api(config);
   }
+  console.error('API - Retry interceptor error:', error);
   return Promise.reject(error);
 });
+
+// Add new token storage function
+export const setAuthToken = async (token: string) => {
+  try {
+    await AsyncStorage.setItem('authToken', token);
+  } catch (error) {
+    console.error('Failed to save auth token:', error);
+    throw error;
+  }
+};
+
+// Add logout function
+export const logout = async (): Promise<{ success: boolean; message: string }> => {
+  try {
+    const response = await api.post('/auth/logout');
+    await AsyncStorage.removeItem('authToken');
+    console.log('API - Logout response:', response.data);
+    return response.data;
+  } catch (error) {
+    console.error('API - Logout error:', error);
+    throw error;
+  }
+};
 
 export const getCurrentUser = async () => {
   try {
@@ -111,128 +156,268 @@ interface SignUpData {
   phoneNumber: string;
 }
 
-export const signup = async (userData: SignUpData) => {
+interface SignupResponse {
+  success: boolean;
+  message: string;
+  user: {
+    id: number;
+    email: string;
+    firstName: string;
+    lastName: string;
+    phoneNumber: string;
+    verificationStatus: string;
+  };
+  userId: number;
+  email: string;
+  verificationStatus: string;
+  otpSent: boolean;
+  isNewUser: boolean;
+}
+
+export const signup = async (signupData: SignUpData): Promise<SignupResponse> => {
   try {
-    console.log('Starting signup request...');
-    
-    // Create AbortController for timeout
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 seconds timeout
-
-    const response = await axios.post(
-      `${API_URL}/auth/signup`,
-      userData,
-      {
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        signal: controller.signal,
-        timeout: 60000, // Increase timeout to 60 seconds
-      }
-    );
-
-    clearTimeout(timeoutId);
-    
-    if (response.data) {
-      console.log('Signup successful');
-      return response.data;
+    // Validate required fields
+    if (!signupData.email || !signupData.password || !signupData.firstName || !signupData.lastName || !signupData.phoneNumber) {
+      throw new Error('All fields are required');
     }
-    
-    throw new Error('No data received from server');
 
-  } catch (error) {
-    console.error('Signup error details:', {
-      message: error.message,
-      code: error.code,
-      response: error.response?.data,
-      status: error.response?.status
+    console.log('API - Signup request:', { 
+      ...signupData, 
+      password: '[REDACTED]' 
     });
 
-    if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
-      throw new Error('Server is taking too long to respond. Please try again later.');
+    const response = await api.post('/auth/signup', signupData);
+    
+    console.log('API - Raw signup response:', {
+      status: response.status,
+      headers: response.headers,
+      data: response.data
+    });
+
+    if (!response.data) {
+      throw new Error('No response data received from server');
     }
 
-    if (error.response?.status === 409) {
-      throw new Error('This email is already registered.');
+    if (response.data.error) {
+      throw new Error(response.data.error);
     }
 
-    if (error.response?.data?.message) {
-      throw new Error(error.response.data.message);
+    if (!response.data.success) {
+      throw new Error(response.data.message || 'Signup failed');
     }
 
-    throw new Error('Failed to create account. Please try again later.');
+    return {
+      success: true,
+      message: response.data.message,
+      user: response.data.user,
+      userId: response.data.userId,
+      email: response.data.email,
+      verificationStatus: response.data.verificationStatus,
+      otpSent: response.data.otpSent,
+      isNewUser: response.data.isNewUser
+    };
+
+  } catch (error) {
+    console.error('API - Signup error:', error);
+    
+    if (axios.isAxiosError(error)) {
+      console.error('API - Full error details:', {
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        data: error.response?.data,
+        headers: error.response?.headers,
+        config: {
+          url: error.config?.url,
+          method: error.config?.method,
+          data: error.config?.data,
+          baseURL: error.config?.baseURL
+        }
+      });
+
+      switch (error.response?.status) {
+        case 400:
+          throw new Error(error.response.data.message || 'Invalid input data');
+        case 409:
+          throw new Error('Email already exists');
+        case 500:
+          throw new Error('Server error occurred. Please try again later.');
+        default:
+          throw new Error(error.response?.data?.message || 'Signup failed');
+      }
+    }
+    
+    if (error instanceof Error) {
+      throw error;
+    }
+    
+    throw new Error('An unexpected error occurred during signup');
   }
 };
+
+interface OTPVerificationResponse {
+  success: boolean;
+  message: string;
+  token: string;
+  user: {
+    id: number;
+    email: string;
+    verificationStatus: string;
+  };
+}
 
 export const verifyOTP = async (email: string, otp: string) => {
   try {
-    console.log('API - Verifying OTP for:', email);
+    console.log('API - Verify OTP request:', { email, otp });
     const response = await api.post('/auth/verify-otp', { email, otp });
-    console.log('API - OTP verification response:', response.data);
+    console.log('API - Verify OTP response:', response.data);
     return response.data;
   } catch (error) {
-    console.error('API - OTP verification error:', error);
+    console.error('API - Verify OTP error:', error);
     throw error;
   }
 };
 
-export const login = async (credentials: { email: string; password: string }) => {
-  try {
-    console.log('API - Attempting login for:', credentials.email);
-    
-    if (!credentials.email || !credentials.password) {
-      throw new Error('Email and password are required');
-    }
-    
-    // Validate email format
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(credentials.email)) {
-      throw new Error('Please enter a valid email address');
-    }
-    
-    // Validate password length
-    if (credentials.password.length < 6) {
-      throw new Error('Password must be at least 6 characters long');
-    }
+interface LoginResponse {
+  success: boolean;
+  message: string;
+  token: string;
+  user: {
+    id: number;
+    email: string;
+    firstName: string;
+    lastName: string;
+    phoneNumber: string;
+    verificationStatus: 'PENDING' | 'VERIFIED';
+  };
+}
 
-    const response = await api.post('/auth/login', {
-      email: credentials.email.trim().toLowerCase(),
-      password: credentials.password
+export const login = async (credentials: {
+  email: string;
+  password: string;
+}): Promise<LoginResponse> => {
+  try {
+    console.log('API - Login attempt:', { email: credentials.email });
+    const response = await api.post('/auth/login', credentials);
+    
+    if (response.data.success && response.data.token) {
+      // Store the token
+      await setAuthToken(response.data.token);
+    }
+    
+    console.log('API - Login response:', {
+      ...response.data,
+      token: response.data.token ? '[REDACTED]' : null
     });
     
-    console.log('API - Login response:', response.data);
     return response.data;
   } catch (error) {
     console.error('API - Login error:', error);
-    if (axios.isAxiosError(error) && error.response?.data?.message) {
-      const message = Array.isArray(error.response.data.message) 
-        ? error.response.data.message.join(', ')
-        : error.response.data.message;
-      throw new Error(message);
+    if (axios.isAxiosError(error) && error.response?.status === 401) {
+      throw new Error('Invalid email or password');
     }
     throw error;
   }
 };
 
-export const completeProfile = async (userId: string, profileData: any) => {
+interface ProfileData {
+  bvn: string;
+  nin: string;
+  dateOfBirth: string;
+}
+
+interface CompleteProfileResponse {
+  success: boolean;
+  message: string;
+  user: {
+    id: number;
+    email: string;
+    firstName: string;
+    lastName: string;
+    phoneNumber: string;
+    bvn: string;
+    nin: string;
+    dateOfBirth: string;
+    verificationStatus: 'PENDING' | 'VERIFIED';
+  };
+}
+
+export const completeProfile = async (
+  userId: string, 
+  profileData: ProfileData
+): Promise<CompleteProfileResponse> => {
   try {
     console.log('API - Completing profile for user:', userId);
-    const response = await api.post(`/users/${userId}/complete-profile`, profileData);
-    console.log('API - Profile completion response:', response.data);
-    return response.data;  // This now directly returns the user data
+    
+    // Format the date to ISO string before sending
+    const formattedData = {
+      ...profileData,
+      dateOfBirth: new Date(profileData.dateOfBirth).toISOString()
+    };
+
+    console.log('API - Formatted profile data:', {
+      ...formattedData,
+      bvn: '[REDACTED]',
+      nin: '[REDACTED]'
+    });
+
+    const response = await api.post(`/auth/complete-profile/${userId}`, formattedData);
+    
+    console.log('API - Profile completion response:', {
+      ...response.data,
+      user: response.data.user ? {
+        ...response.data.user,
+        bvn: '[REDACTED]',
+        nin: '[REDACTED]'
+      } : null
+    });
+
+    if (!response.data.success) {
+      throw new Error(response.data.message || 'Failed to complete profile');
+    }
+
+    return response.data;
   } catch (error) {
     console.error('API - Profile completion error:', error);
-    if (axios.isAxiosError(error) && error.response) {
-      throw new Error(error.response.data.message || 'An error occurred during profile completion');
-    } else {
-      throw new Error('An unexpected error occurred');
+    if (axios.isAxiosError(error)) {
+      // Log the full error details for debugging
+      console.error('API - Full error details:', {
+        status: error.response?.status,
+        data: error.response?.data,
+        headers: error.response?.headers,
+        config: {
+          url: error.config?.url,
+          method: error.config?.method,
+          data: error.config?.data,
+          baseURL: error.config?.baseURL
+        }
+      });
+
+      // Handle specific error cases
+      switch (error.response?.status) {
+        case 400:
+          throw new Error(error.response.data.message || 'Invalid profile data');
+        case 401:
+          throw new Error('Unauthorized. Please login again.');
+        case 404:
+          throw new Error('User not found');
+        case 500:
+          throw new Error('Server error occurred. Please try again later.');
+        default:
+          throw new Error(error.response?.data?.message || 'Failed to complete profile');
+      }
     }
+    
+    if (error instanceof Error) {
+      throw error;
+    }
+    
+    throw new Error('Failed to complete profile. Please try again.');
   }
 };
 
 export const resendOTP = async (email: string) => {
   try {
-    console.log('API - Resending OTP for:', email);
+    console.log('API - Resend OTP request:', { email });
     const response = await api.post('/auth/resend-otp', { email });
     console.log('API - Resend OTP response:', response.data);
     return response.data;
@@ -248,9 +433,9 @@ export const createVirtualAccount = async (paymentDetails: any) => {
     const response = await api.post('/virtual-account', paymentDetails);
     console.log('Response from create virtual account:', response.data);
     return response.data;
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Error creating virtual account:', error);
-    if (error.response) {
+    if (axios.isAxiosError(error) && error.response) {
       console.error('Error response:', error.response.data);
       console.error('Error status:', error.response.status);
       console.error('Error headers:', error.response.headers);
